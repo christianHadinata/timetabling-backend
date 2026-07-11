@@ -1,6 +1,8 @@
 package com.timetablingapp.course;
 
+import com.timetablingapp.activity.ActivityRepository;
 import com.timetablingapp.common.base.BaseCrudService;
+import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.DuplicateResourceException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.jurusan.Jurusan;
@@ -19,6 +21,7 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
     private final CourseRepository courseRepository;
     private final JurusanRepository jurusanRepository;
     private final JurusanService jurusanService;
+    private final ActivityRepository activityRepository;
 
     @Override
     public List<CourseResponse> findAll() {
@@ -102,9 +105,11 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
         Course course = courseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Course", "id", id));
 
-        // TODO: Phase 5 — Check if course is used in activities before deletion
-        // Mirrors Laravel: Activity::where('course_code', $course->code)->get()
-        // If activities exist, throw BadRequestException
+        // Phase 5: block deletion when any activity references this course code.
+        if (activityRepository.existsByCourse_Code(course.getCode())) {
+            throw new BadRequestException(
+                "Cannot delete course: it is used by one or more activities.");
+        }
 
         courseRepository.delete(course);
     }
