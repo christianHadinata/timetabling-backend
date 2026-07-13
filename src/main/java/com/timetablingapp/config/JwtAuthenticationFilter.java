@@ -30,14 +30,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
+        final boolean hasBearer = authHeader != null && authHeader.startsWith("Bearer ");
 
-        // Skip if no Bearer token present
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        // Browser EventSource can't set an Authorization header, so /api/sse/** may
+        // instead carry the JWT as a query param. Scoped narrowly to that one path.
+        final String queryToken = (!hasBearer && request.getRequestURI().startsWith("/api/sse/"))
+                ? request.getParameter("token") : null;
+
+        if (!hasBearer && queryToken == null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        final String jwt = authHeader.substring(7);
+        final String jwt = hasBearer ? authHeader.substring(7) : queryToken;
 
         try {
             if (jwtService.isTokenValid(jwt)) {

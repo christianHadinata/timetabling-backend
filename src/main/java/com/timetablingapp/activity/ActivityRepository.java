@@ -1,6 +1,8 @@
 package com.timetablingapp.activity;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -15,6 +17,15 @@ public interface ActivityRepository extends JpaRepository<Activity, Integer> {
      *           ->where('semester_id', $sems)->get()
      */
     List<Activity> findBySemester_IdAndCourse_Jurusan_IdIn(Integer semesterId, List<Integer> jurusanIds);
+
+    /**
+     * Fetch-joined activities for GA scheduling — avoids N+1 when mapping
+     * to AlgorithmActivity (course + activityType are touched for every row).
+     */
+    @Query("select distinct a from Activity a " +
+           "join fetch a.course c join fetch a.activityType " +
+           "where a.semester.id = :semesterId")
+    List<Activity> findAllForScheduling(@Param("semesterId") Integer semesterId);
 
     /** All activities in a semester (used by revalidate / semester duplicate in later phases). */
     List<Activity> findBySemester_Id(Integer semesterId);

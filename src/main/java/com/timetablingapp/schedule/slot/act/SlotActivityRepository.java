@@ -6,8 +6,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 @Repository
 public interface SlotActivityRepository extends JpaRepository<SlotActivity, Integer> {
+
+    /** Search space for one activity — the GA reads this instead of re-running slot validation. */
+    List<SlotActivity> findByActivity_Id(Integer activityId);
 
     /**
      * Hard-delete all slot_acts belonging to activities of one semester.
