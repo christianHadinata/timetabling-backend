@@ -8,6 +8,8 @@ import com.timetablingapp.common.base.BaseCrudService;
 import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.result.ResultRepository;
+import com.timetablingapp.schedule.slot.act.SlotActivityRepository;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import com.timetablingapp.setting.Setting;
 import com.timetablingapp.setting.SettingRepository;
 import com.timetablingapp.setting.constraint.SettingConstraint;
@@ -30,6 +32,8 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
     private final SettingRepository settingRepository;
     private final SettingConstraintRepository settingConstraintRepository;
     private final ResultRepository resultRepository;
+    private final SlotActivityRepository slotActivityRepository;
+    private final ValidateLockService validateLockService;
 
     // ──────────────────────────────────────
     // Standard CRUD Operations
@@ -108,6 +112,7 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
 
         // Refresh the entity to get updated state
         semester.setCurrent(true);
+        validateLockService.lock();
         return SemesterResponse.fromEntity(semester);
     }
 
@@ -222,7 +227,7 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
             }
         }
 
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         log.info("Semester duplicate: copied activities/settings from semester {} to current semester {}",
                 sourceSemesterId, currentSemester.getId());
 
@@ -245,11 +250,13 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
         // 1. Results
         resultRepository.deleteBySemester_Id(semId);
 
-        // 2. Activity constraints, then activities
+        // 2. Slot-acts, then activity constraints, then activities
+        slotActivityRepository.deleteBySemesterId(semId);   // hard-delete, before activities
         List<Activity> activities = activityRepository.findBySemester_Id(semId);
         for (Activity a : activities) {
             activityConstraintRepository.deleteByActivity_Id(a.getId());
-            // TODO Phase 7: also clear activity_paralels / activity_gaps / slot_acts
+            // NOTE: activity_paralels / activity_gaps are cleared via ActivityService.delete
+            // when activities are removed individually; bulk removal here mirrors Laravel.
         }
         for (Activity a : activities) {
             activityRepository.delete(a);
@@ -264,7 +271,7 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
             settingRepository.delete(s);
         }
 
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         log.info("Remove current semester data: cleared results/activities/settings for semester {}", semId);
     }
 }

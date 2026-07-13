@@ -4,6 +4,7 @@ import com.timetablingapp.common.base.BaseCrudService;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.lecturer.Lecturer;
 import com.timetablingapp.lecturer.LecturerRepository;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ public class LecturerTimeNAService
 
     private final LecturerTimeNARepository repository;
     private final LecturerRepository lecturerRepository;
+    private final ValidateLockService validateLockService;
 
     public List<LecturerTimeResponse> findByLecturerId(Integer lecturerId) {
         return repository.findByLecturer_IdOrderByDayAsc(lecturerId).stream()
@@ -38,7 +40,9 @@ public class LecturerTimeNAService
     public LecturerTimeResponse create(LecturerTimeRequest request) {
         LecturerTimeNA e = new LecturerTimeNA();
         apply(e, request);
-        return LecturerTimeResponse.fromEntity(repository.save(e));
+        LecturerTimeResponse saved = LecturerTimeResponse.fromEntity(repository.save(e));
+        validateLockService.lock();
+        return saved;
     }
 
     @Override
@@ -46,13 +50,16 @@ public class LecturerTimeNAService
     public LecturerTimeResponse update(Integer id, LecturerTimeRequest request) {
         LecturerTimeNA e = getOrThrow(id);
         apply(e, request);
-        return LecturerTimeResponse.fromEntity(repository.save(e));
+        LecturerTimeResponse saved = LecturerTimeResponse.fromEntity(repository.save(e));
+        validateLockService.lock();
+        return saved;
     }
 
     @Override
     @Transactional
     public void delete(Integer id) {
         repository.delete(getOrThrow(id));
+        validateLockService.lock();
     }
 
     private void apply(LecturerTimeNA e, LecturerTimeRequest request) {

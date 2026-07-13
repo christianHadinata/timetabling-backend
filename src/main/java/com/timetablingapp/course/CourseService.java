@@ -8,6 +8,7 @@ import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.jurusan.Jurusan;
 import com.timetablingapp.jurusan.JurusanRepository;
 import com.timetablingapp.jurusan.JurusanService;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
     private final JurusanRepository jurusanRepository;
     private final JurusanService jurusanService;
     private final ActivityRepository activityRepository;
+    private final ValidateLockService validateLockService;
 
     @Override
     public List<CourseResponse> findAll() {
@@ -70,6 +72,7 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
         course.setJurusan(jurusan);
 
         Course saved = courseRepository.save(course);
+        validateLockService.lock();
         return CourseResponse.fromEntity(saved);
     }
 
@@ -96,6 +99,7 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
         course.setJurusan(jurusan);
 
         Course saved = courseRepository.save(course);
+        validateLockService.lock();
         return CourseResponse.fromEntity(saved);
     }
 
@@ -112,6 +116,7 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
         }
 
         courseRepository.delete(course);
+        validateLockService.lock();
     }
 
     /**

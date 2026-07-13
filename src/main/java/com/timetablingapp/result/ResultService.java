@@ -7,6 +7,7 @@ import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.room.Room;
 import com.timetablingapp.room.RoomRepository;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import com.timetablingapp.semester.Semester;
 import com.timetablingapp.semester.SemesterRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class ResultService implements BaseCrudService<ResultResponse, ResultRequ
     private final ActivityRepository activityRepository;
     private final RoomRepository roomRepository;
     private final SemesterRepository semesterRepository;
+    private final ValidateLockService validateLockService;
 
     // ---- reads ---------------------------------------------------------------
 
@@ -51,7 +53,9 @@ public class ResultService implements BaseCrudService<ResultResponse, ResultRequ
     public ResultResponse create(ResultRequest request) {
         Result r = new Result();
         apply(r, request, /*allowSemesterDefault*/ true);
-        return ResultResponse.fromEntity(resultRepository.save(r));
+        ResultResponse saved = ResultResponse.fromEntity(resultRepository.save(r));
+        validateLockService.lock();
+        return saved;
     }
 
     @Override
@@ -59,14 +63,16 @@ public class ResultService implements BaseCrudService<ResultResponse, ResultRequ
     public ResultResponse update(Integer id, ResultRequest request) {
         Result r = getOrThrow(id);
         apply(r, request, /*allowSemesterDefault*/ false);
-        return ResultResponse.fromEntity(resultRepository.save(r));
+        ResultResponse saved = ResultResponse.fromEntity(resultRepository.save(r));
+        validateLockService.lock();
+        return saved;
     }
 
     @Override
     @Transactional
     public void delete(Integer id) {
         resultRepository.delete(getOrThrow(id));
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
     }
 
     /**
@@ -77,7 +83,7 @@ public class ResultService implements BaseCrudService<ResultResponse, ResultRequ
     public int deleteBySemester(Integer semesterId) {
         List<Result> rows = resultRepository.findBySemester_Id(semesterId);
         resultRepository.deleteAll(rows);   // honors @SQLDelete
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return rows.size();
     }
 

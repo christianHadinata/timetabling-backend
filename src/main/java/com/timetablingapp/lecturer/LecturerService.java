@@ -9,6 +9,7 @@ import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.lecturer.time.LecturerTimeNARepository;
 import com.timetablingapp.lecturer.time.LecturerTimeResponse;
 import com.timetablingapp.lecturer.time.LecturerTimeType;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ public class LecturerService implements BaseCrudService<LecturerResponse, Lectur
     private final LecturerRepository lecturerRepository;
     private final LecturerTimeNARepository timeRepository;
     private final ActivityConstraintRepository activityConstraintRepository;
+    private final ValidateLockService validateLockService;
 
     @Override
     public List<LecturerResponse> findAll() {
@@ -43,7 +45,7 @@ public class LecturerService implements BaseCrudService<LecturerResponse, Lectur
         Lecturer l = new Lecturer();
         apply(l, request);
         Lecturer saved = lecturerRepository.save(l);
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return toResponse(saved);
     }
 
@@ -56,7 +58,7 @@ public class LecturerService implements BaseCrudService<LecturerResponse, Lectur
         }
         apply(l, request);
         Lecturer saved = lecturerRepository.save(l);
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return toResponse(saved);
     }
 
@@ -75,6 +77,7 @@ public class LecturerService implements BaseCrudService<LecturerResponse, Lectur
                 "Cannot delete lecturer: they are assigned to one or more activities.");
         }
         lecturerRepository.delete(l);
+        validateLockService.lock();
     }
 
     // ---- helpers -------------------------------------------------------------

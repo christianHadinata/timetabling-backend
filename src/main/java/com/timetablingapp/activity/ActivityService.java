@@ -17,6 +17,8 @@ import com.timetablingapp.course.Course;
 import com.timetablingapp.course.CourseRepository;
 import com.timetablingapp.jurusan.JurusanService;
 import com.timetablingapp.result.ResultRepository;
+import com.timetablingapp.schedule.slot.act.SlotActivityRepository;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import com.timetablingapp.semester.Semester;
 import com.timetablingapp.semester.SemesterRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,8 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
     private final SemesterRepository semesterRepository;
     private final JurusanService jurusanService;
     private final ResultRepository resultRepository;
+    private final SlotActivityRepository slotActivityRepository;
+    private final ValidateLockService validateLockService;
 
     // ---- reads ---------------------------------------------------------------
 
@@ -92,7 +96,7 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
         Activity saved = activityRepository.save(activity);
 
         syncConstraints(saved, request);
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return toDetailResponse(saved);
     }
 
@@ -106,7 +110,7 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
         syncConstraints(saved, request);
         syncParalels(saved, request);
         syncGaps(saved, request);
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return toDetailResponse(saved);
     }
 
@@ -127,8 +131,9 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
         constraintRepository.deleteByActivity_Id(id);
         paralelRepository.deleteAllForActivity(id);
         gapRepository.deleteAllForActivity(id);
+        slotActivityRepository.deleteByActivityId(id);   // slot_acts has no soft-delete
         activityRepository.delete(activity);
-        // TODO Phase 7: cascade delete slot_acts + validateLockRepository.lock();
+        validateLockService.lock();
     }
 
     /** Paralel candidates for the edit form. Mirrors ActivityController::getParalelCandidates(). */

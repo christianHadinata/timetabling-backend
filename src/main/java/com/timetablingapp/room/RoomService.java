@@ -11,10 +11,17 @@ import com.timetablingapp.room.available.RoomAvailableResponse;
 import com.timetablingapp.room.type.RoomType;
 import com.timetablingapp.room.type.RoomTypeRepository;
 import com.timetablingapp.result.ResultRepository;
+import com.timetablingapp.schedule.slot.Slot;
+import com.timetablingapp.schedule.slot.SlotRepository;
+import com.timetablingapp.schedule.slot.act.SlotActivityRepository;
+import com.timetablingapp.schedule.slot.time.Time;
+import com.timetablingapp.schedule.slot.time.TimeRepository;
+import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -25,6 +32,10 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
     private final RoomTypeRepository roomTypeRepository;
     private final RoomAvailableRepository roomAvailableRepository;
     private final ResultRepository resultRepository;
+    private final TimeRepository timeRepository;
+    private final SlotRepository slotRepository;
+    private final SlotActivityRepository slotActivityRepository;
+    private final ValidateLockService validateLockService;
 
     @Override
     public List<RoomResponse> findAll() {
@@ -48,7 +59,16 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
         Room saved = roomRepository.save(room);
         replaceAvailabilities(saved, request.getAvailabilities());
 
-        // TODO Phase 7: create Slot rows for every Time, then validateLockRepository.lock();
+        // A room gets one slot per Time. Mirrors RoomController@store.
+        List<Slot> slots = new ArrayList<>();
+        for (Time time : timeRepository.findAll()) {
+            Slot slot = new Slot();
+            slot.setRoom(saved);
+            slot.setTime(time);
+            slots.add(slot);
+        }
+        slotRepository.saveAll(slots);
+        validateLockService.lock();
         return toResponse(saved);
     }
 
@@ -64,7 +84,7 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
         Room saved = roomRepository.save(room);
         replaceAvailabilities(saved, request.getAvailabilities());
 
-        // TODO Phase 7: validateLockRepository.lock();
+        validateLockService.lock();
         return toResponse(saved);
     }
 
@@ -82,10 +102,13 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
             throw new BadRequestException(
                 "Cannot delete room: it is used by one or more scheduled results.");
         }
-        // TODO Phase 7: cascade-delete this room's slots + slot_acts
+        // Cascade-delete this room's slots + slot_acts (both hard-delete, FK order matters).
+        slotActivityRepository.deleteBySlotRoomId(id);
+        slotRepository.deleteByRoomId(id);
 
         roomAvailableRepository.deleteByRoom_Id(id);   // soft-delete availabilities
         roomRepository.delete(room);
+        validateLockService.lock();
     }
 
     // ---- helpers -------------------------------------------------------------
