@@ -10,6 +10,7 @@ import com.timetablingapp.room.available.RoomAvailableRequest;
 import com.timetablingapp.room.available.RoomAvailableResponse;
 import com.timetablingapp.room.type.RoomType;
 import com.timetablingapp.room.type.RoomTypeRepository;
+import com.timetablingapp.result.ResultRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
     private final RoomRepository roomRepository;
     private final RoomTypeRepository roomTypeRepository;
     private final RoomAvailableRepository roomAvailableRepository;
+    private final ResultRepository resultRepository;
 
     @Override
     public List<RoomResponse> findAll() {
@@ -75,8 +77,11 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
             throw new BadRequestException(
                 "Cannot delete room: it has sub-rooms. Remove them first.");
         }
-        // Laravel guard #2 (results) is deferred to Phase 6:
-        // TODO Phase 6: if ResultRepository.existsByRoom_Id(id) -> BadRequestException
+        // Laravel RoomController@destroy guard #2: no result uses this room
+        if (resultRepository.existsByRoom_Id(id)) {
+            throw new BadRequestException(
+                "Cannot delete room: it is used by one or more scheduled results.");
+        }
         // TODO Phase 7: cascade-delete this room's slots + slot_acts
 
         roomAvailableRepository.deleteByRoom_Id(id);   // soft-delete availabilities

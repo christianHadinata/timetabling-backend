@@ -1,8 +1,17 @@
 package com.timetablingapp.semester;
 
+import com.timetablingapp.activity.Activity;
+import com.timetablingapp.activity.ActivityRepository;
+import com.timetablingapp.activity.constraint.ActivityConstraint;
+import com.timetablingapp.activity.constraint.ActivityConstraintRepository;
 import com.timetablingapp.common.base.BaseCrudService;
 import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
+import com.timetablingapp.result.ResultRepository;
+import com.timetablingapp.setting.Setting;
+import com.timetablingapp.setting.SettingRepository;
+import com.timetablingapp.setting.constraint.SettingConstraint;
+import com.timetablingapp.setting.constraint.SettingConstraintRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,6 +25,11 @@ import java.util.List;
 public class SemesterService implements BaseCrudService<SemesterResponse, SemesterRequest, Integer> {
 
     private final SemesterRepository semesterRepository;
+    private final ActivityRepository activityRepository;
+    private final ActivityConstraintRepository activityConstraintRepository;
+    private final SettingRepository settingRepository;
+    private final SettingConstraintRepository settingConstraintRepository;
+    private final ResultRepository resultRepository;
 
     // ──────────────────────────────────────
     // Standard CRUD Operations
@@ -158,12 +172,6 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
      *
      * Mirrors Laravel: SemesterController.duplicate()
      *
-     * NOTE: The full duplication logic requires Activity, ActivityConstraint,
-     * Setting, and SettingConstraint repositories which are implemented in
-     * later phases (Phase 5 and Phase 6). For now, this method accepts
-     * the source semester ID and will be completed when those dependencies
-     * are available.
-     *
      * @param sourceSemesterId the semester to copy from
      * @throws BadRequestException if no current semester is set
      */
@@ -177,19 +185,46 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
         Semester currentSemester = semesterRepository.findByCurrentTrue()
                 .orElseThrow(() -> new BadRequestException("No current semester is set"));
 
-        // TODO: Phase 5 & 6 — Copy activities, activity constraints,
-        // settings, and setting constraints from sourceSemesterId
-        // to currentSemester.getId()
-        //
-        // The Laravel implementation (SemesterController.duplicate) does:
-        // 1. Copy all activities from source semester → current semester
-        // 2. Copy all activity constraints for each copied activity
-        // 3. Copy all settings from source semester → current semester
-        // 4. Copy all setting constraints for each copied setting
-        // 5. Lock validation (vlock.lock())
+        // 1 & 2. Copy activities from source semester → current semester, with their constraints.
+        for (Activity old : activityRepository.findBySemester_Id(sourceSemesterId)) {
+            Activity copy = new Activity();
+            copy.setSemester(currentSemester);
+            copy.setCourse(old.getCourse());
+            copy.setCourseClass(old.getCourseClass());
+            copy.setCourseSession(old.getCourseSession());
+            copy.setDuration(old.getDuration());
+            copy.setQuota(old.getQuota());
+            copy.setActivityType(old.getActivityType());
+            Activity savedActivity = activityRepository.save(copy);
 
-        log.warn("Semester duplicate: Activity/Setting duplication is deferred to Phase 5/6. " +
-                "Source semester {} → Current semester {}", sourceSemesterId, currentSemester.getId());
+            for (ActivityConstraint oc : activityConstraintRepository.findByActivity_Id(old.getId())) {
+                ActivityConstraint nc = new ActivityConstraint();
+                nc.setActivity(savedActivity);
+                nc.setType(oc.getType());
+                nc.setValue(oc.getValue());
+                activityConstraintRepository.save(nc);
+            }
+        }
+
+        // 3 & 4. Copy settings from source semester → current semester, with their constraints.
+        for (Setting old : settingRepository.findBySemester_Id(sourceSemesterId)) {
+            Setting copy = new Setting();
+            copy.setSemester(currentSemester);
+            copy.setName(old.getName());
+            Setting savedSetting = settingRepository.save(copy);
+
+            for (SettingConstraint oc : settingConstraintRepository.findBySetting_Id(old.getId())) {
+                SettingConstraint nc = new SettingConstraint();
+                nc.setSetting(savedSetting);
+                nc.setType(oc.getType());
+                nc.setValue(oc.getValue());
+                settingConstraintRepository.save(nc);
+            }
+        }
+
+        // TODO Phase 7: validateLockRepository.lock();
+        log.info("Semester duplicate: copied activities/settings from semester {} to current semester {}",
+                sourceSemesterId, currentSemester.getId());
 
         return SemesterResponse.fromEntity(currentSemester);
     }
@@ -199,27 +234,37 @@ public class SemesterService implements BaseCrudService<SemesterResponse, Semest
      *
      * Mirrors Laravel: SemesterController.removeCurSem()
      *
-     * NOTE: Similar to duplicate(), this requires dependencies from later phases.
-     * Will be completed in Phase 5/6.
-     *
      * @throws BadRequestException if no current semester is set
      */
     @Transactional
     public void removeCurrentSemesterData() {
         Semester currentSemester = semesterRepository.findByCurrentTrue()
                 .orElseThrow(() -> new BadRequestException("No current semester is set"));
+        Integer semId = currentSemester.getId();
 
-        // TODO: Phase 5 & 6 — Delete all results, activity constraints,
-        // activities, setting constraints, and settings for the current semester.
-        //
-        // The Laravel implementation (SemesterController.removeCurSem) does:
-        // 1. Delete results for current semester
-        // 2. Delete activity constraints for each activity in current semester
-        // 3. Delete activities for current semester
-        // 4. Delete setting constraints for each setting in current semester
-        // 5. Delete settings for current semester
+        // 1. Results
+        resultRepository.deleteBySemester_Id(semId);
 
-        log.warn("Remove current semester data: Deferred to Phase 5/6. " +
-                "Current semester ID: {}", currentSemester.getId());
+        // 2. Activity constraints, then activities
+        List<Activity> activities = activityRepository.findBySemester_Id(semId);
+        for (Activity a : activities) {
+            activityConstraintRepository.deleteByActivity_Id(a.getId());
+            // TODO Phase 7: also clear activity_paralels / activity_gaps / slot_acts
+        }
+        for (Activity a : activities) {
+            activityRepository.delete(a);
+        }
+
+        // 3. Setting constraints, then settings
+        List<Setting> settings = settingRepository.findBySemester_Id(semId);
+        for (Setting s : settings) {
+            settingConstraintRepository.deleteBySetting_Id(s.getId());
+        }
+        for (Setting s : settings) {
+            settingRepository.delete(s);
+        }
+
+        // TODO Phase 7: validateLockRepository.lock();
+        log.info("Remove current semester data: cleared results/activities/settings for semester {}", semId);
     }
 }

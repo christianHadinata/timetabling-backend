@@ -16,6 +16,7 @@ import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.course.Course;
 import com.timetablingapp.course.CourseRepository;
 import com.timetablingapp.jurusan.JurusanService;
+import com.timetablingapp.result.ResultRepository;
 import com.timetablingapp.semester.Semester;
 import com.timetablingapp.semester.SemesterRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
     private final CourseRepository courseRepository;
     private final SemesterRepository semesterRepository;
     private final JurusanService jurusanService;
+    private final ResultRepository resultRepository;
 
     // ---- reads ---------------------------------------------------------------
 
@@ -114,15 +116,19 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
         Activity activity = getOrThrow(id);
 
         // Legacy ActivityController@destroy blocks delete when a scheduled Result uses it.
-        // TODO Phase 6: if (resultRepository.existsByActivity_IdAndRoomIdNotNull(id))
-        //                   throw new BadRequestException("Cannot delete: a result uses this activity.");
-        // TODO Phase 6/7: cascade delete slot_acts + results for this activity.
+        if (resultRepository.existsByActivity_IdAndRoomIsNotNull(id)) {
+            throw new BadRequestException(
+                "Cannot delete activity: it is used by a scheduled result.");
+        }
+
+        // Cascade: remove any (unscheduled) results referencing this activity.
+        resultRepository.deleteByActivity_Id(id);
 
         constraintRepository.deleteByActivity_Id(id);
         paralelRepository.deleteAllForActivity(id);
         gapRepository.deleteAllForActivity(id);
         activityRepository.delete(activity);
-        // TODO Phase 7: validateLockRepository.lock();
+        // TODO Phase 7: cascade delete slot_acts + validateLockRepository.lock();
     }
 
     /** Paralel candidates for the edit form. Mirrors ActivityController::getParalelCandidates(). */
