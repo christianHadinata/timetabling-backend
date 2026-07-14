@@ -60,10 +60,44 @@ dependencies {
 
     // Testing
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Spring Boot 4.0 split @WebMvcTest out of spring-boot-test-autoconfigure into its own
+    // starter — needed for the web-slice controller tests.
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // --- Phase 10: testing ---
+    // H2 for the DB-free "test" profile (schema created from entities, not validated against MySQL)
+    testRuntimeOnly("com.h2database:h2")
+
+    // Testcontainers 2.x — real MySQL for the opt-in @Tag("integration") full-stack test.
+    // Artifact IDs are "testcontainers-junit-jupiter" / "testcontainers-mysql" as of 2.0.x
+    // (the pre-2.0 "junit-jupiter" / "mysql" coordinates topped out at 1.21.4 and don't exist
+    // at the version the Spring Boot 4.0.2 BOM manages).
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-mysql")
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// Fast, DB-free suite (default `./gradlew build` / `./gradlew test`) — skips anything tagged "integration".
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+}
+
+// Opt-in suite that needs Docker (Testcontainers MySQL). Run with `./gradlew integrationTest`.
+tasks.register<Test>("integrationTest") {
+    description = "Runs @Tag(\"integration\") tests (requires Docker)."
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    shouldRunAfter("test")
 }

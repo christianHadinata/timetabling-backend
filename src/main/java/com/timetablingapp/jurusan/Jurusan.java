@@ -28,13 +28,13 @@ public class Jurusan extends BaseSoftDeleteEntity {
     @Column(nullable = false)
     private String name;
 
-    @Column
+    @Column(nullable = false)
     private String faculty;
 
     @Enumerated(EnumType.STRING)
-    @Column(columnDefinition = "ENUM('D3','S1','S2','S3') DEFAULT 'S1'")
+    @Column(columnDefinition = "ENUM('D3','S1','S2','S3') DEFAULT 'S1'", nullable = false)
     private Jenjang jenjang;
 
-    @Column
+    @Column(nullable = false)
     private Integer color;
 }

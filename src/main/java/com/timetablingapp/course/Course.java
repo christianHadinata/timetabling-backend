@@ -34,7 +34,7 @@ public class Course extends BaseSoftDeleteEntity {
     private String name;
 
     @Enumerated(EnumType.STRING)
-    @Column
+    @Column(nullable = false)
     private CourseType type;
 
     @Column
@@ -44,7 +44,7 @@ public class Course extends BaseSoftDeleteEntity {
     private String konsentrasi;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "jurusan_id")
+    @JoinColumn(name = "jurusan_id", nullable = false)
     private Jurusan jurusan;
 
     /**

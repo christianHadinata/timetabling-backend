@@ -1,0 +1,37 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: timetab-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-Receiver1}
+      MYSQL_DATABASE: ${DB_NAME:-timetab}
+    ports:
+      - "3307:3306"                      # host 3307 to avoid clashing with a local MySQL on 3306
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./src/test/resources/schema:/docker-entrypoint-initdb.d:ro   # seeds schema on first boot
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: timetab-app
+    depends_on:
+      db:
+        condition: service_healthy       # wait for DB before validate runs
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://db:3306/${DB_NAME:-timetab}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Jakarta
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD:-Receiver1}
+      DDL_AUTO: validate
+      JWT_SECRET: ${JWT_SECRET:-kk01yAiWo4uX2QEd4f8DIUfSBSpN8Jfy34Bld2gVmWI}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:

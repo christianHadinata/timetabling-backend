@@ -7,8 +7,10 @@ import com.timetablingapp.semester.Semester;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalTime;
 
@@ -49,5 +51,6 @@ public class Result extends BaseSoftDeleteEntity {
 
     /** Laravel: tinyInteger default 1. */
     @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.TINYINT)
     private Boolean valid = true;
 }

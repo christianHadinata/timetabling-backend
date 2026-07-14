@@ -12,8 +12,11 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import jakarta.servlet.http.HttpServletResponse;
 
 @Configuration
 @EnableWebSecurity
@@ -30,6 +33,12 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
+            // Without an explicit entry point, Spring Security's default for a filter chain with
+            // no formLogin()/httpBasic() is Http403ForbiddenEntryPoint — every unauthenticated
+            // request comes back 403, never 401. That contradicts GlobalExceptionHandler's
+            // AuthenticationException -> 401 mapping (which only fires for exceptions raised
+            // inside the DispatcherServlet, not ones resolved by ExceptionTranslationFilter).
+            .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorizedEntryPoint()))
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints
                 .requestMatchers(
@@ -57,5 +66,17 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /** Plain string body (no ObjectMapper dependency) — mirrors GlobalExceptionHandler's ErrorResponse shape. */
+    private AuthenticationEntryPoint unauthorizedEntryPoint() {
+        return (request, response, authException) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write(
+                    "{\"success\":false,\"status\":401,\"error\":\"Unauthorized\","
+                            + "\"message\":\"Authentication failed: invalid or expired token\","
+                            + "\"path\":\"" + request.getRequestURI() + "\"}");
+        };
     }
 }
