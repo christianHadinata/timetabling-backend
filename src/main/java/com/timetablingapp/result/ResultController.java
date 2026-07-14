@@ -1,13 +1,18 @@
 package com.timetablingapp.result;
 
 import com.timetablingapp.common.dto.MessageResponse;
+import com.timetablingapp.common.excel.ImportLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -17,6 +22,7 @@ import java.util.List;
 public class ResultController {
 
     private final ResultService service;
+    private final ResultExcelService resultExcelService;
 
     /** GET /api/results?semesterId= (all when omitted). */
     @GetMapping
@@ -61,12 +67,34 @@ public class ResultController {
         return ResponseEntity.ok(MessageResponse.success("Cleared " + n + " result(s) for semester " + semesterId));
     }
 
-    // ---- Excel — DEFERRED TO PHASE 9 ----------------------------------------
-    // GET  /api/results/export-siakad/{semesterId}
-    // GET  /api/results/export-print/{semesterId}
-    // POST /api/results/import
-    @GetMapping({"/export-siakad/{semesterId}", "/export-print/{semesterId}"})
-    public ResponseEntity<Void> exportStub(@PathVariable Integer semesterId) {
-        throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Excel export lands in Phase 9");
+    // ---- Excel ---------------------------------------------------------------
+
+    /** GET /api/results/export-siakad/{semesterId} — SIAKAD + "Not Inserted" workbook. */
+    @GetMapping("/export-siakad/{semesterId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Resource> exportSiakad(@PathVariable Integer semesterId) {
+        return resultExcelService.exportSiakad(semesterId, currentFaculty());
+    }
+
+    /** GET /api/results/export-print/{semesterId} — printable per-day room grid. */
+    @GetMapping("/export-print/{semesterId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Resource> exportPrint(@PathVariable Integer semesterId) {
+        return resultExcelService.exportPrint(semesterId, currentFaculty());
+    }
+
+    /** POST /api/results/import — upsert results from an uploaded SIAKAD-format workbook. */
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ImportLog> importExcel(@RequestParam("file") MultipartFile file) {
+        return ResponseEntity.ok(service.importResults(file));
+    }
+
+    private String currentFaculty() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof String faculty) {
+            return faculty;
+        }
+        return null;
     }
 }

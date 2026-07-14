@@ -10,6 +10,7 @@ import com.timetablingapp.activity.paralel.ActivityParalelRepository;
 import com.timetablingapp.activity.type.ActivityType;
 import com.timetablingapp.activity.type.ActivityTypeRepository;
 import com.timetablingapp.common.base.BaseCrudService;
+import com.timetablingapp.common.excel.ImportLog;
 import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.DuplicateResourceException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
@@ -17,6 +18,10 @@ import com.timetablingapp.course.Course;
 import com.timetablingapp.course.CourseRepository;
 import com.timetablingapp.jurusan.JurusanService;
 import com.timetablingapp.result.ResultRepository;
+import com.timetablingapp.room.Room;
+import com.timetablingapp.room.RoomRepository;
+import com.timetablingapp.room.type.RoomType;
+import com.timetablingapp.room.type.RoomTypeRepository;
 import com.timetablingapp.schedule.slot.act.SlotActivityRepository;
 import com.timetablingapp.schedule.validate.ValidateLockService;
 import com.timetablingapp.semester.Semester;
@@ -24,6 +29,7 @@ import com.timetablingapp.semester.SemesterRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +51,10 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
     private final ResultRepository resultRepository;
     private final SlotActivityRepository slotActivityRepository;
     private final ValidateLockService validateLockService;
+    private final RoomTypeRepository roomTypeRepository;
+    private final RoomRepository roomRepository;
+    private final ActivityExcelService activityExcelService;
+    private final com.timetablingapp.lecturer.LecturerRepository lecturerRepository;
 
     // ---- reads ---------------------------------------------------------------
 
@@ -145,6 +155,86 @@ public class ActivityService implements BaseCrudService<ActivityResponse, Activi
                         a.getCourse().getTingkat()).stream()
                 .map(this::toParalelDto)
                 .toList();
+    }
+
+    // ---- Excel import (mirrors ActivityController@uploadExcel) ----------------
+
+    /**
+     * Import activities into the current semester. Per row validates: no duplicate
+     * (semester, code, class, session); every lecturer NIK exists; course exists; every room
+     * code exists; every room-type name exists. Then creates the activity and its constraints
+     * (Lecturer=nik, RoomType=id, Room=id). Bad rows are logged and skipped.
+     */
+    public ImportLog importActivities(MultipartFile file) {
+        ImportLog log = new ImportLog("activity");
+        Semester sem = currentSemester();
+
+        Map<String, Integer> roomTypeIdByName = roomTypeRepository.findAll().stream()
+                .collect(Collectors.toMap(RoomType::getName, RoomType::getId, (a, b) -> a));
+        Map<String, Integer> roomIdByCode = roomRepository.findAll().stream()
+                .collect(Collectors.toMap(Room::getRoomCode, Room::getId, (a, b) -> a));
+
+        for (ActivityExcelService.ActivityRow row : activityExcelService.parse(file)) {
+            String id = row.courseCode() + "(" + row.courseClass() + ")-" + row.courseSession();
+            try {
+                if (activityRepository.existsBySemester_IdAndCourse_CodeAndCourseClassAndCourseSession(
+                        sem.getId(), row.courseCode(), row.courseClass(), row.courseSession())) {
+                    log.fail(id, "Ditemukan duplikat pada database untuk semester saat ini.");
+                    continue;
+                }
+                if (row.lecturerNiks().stream().anyMatch(n -> !lecturerRepository.existsByNik(n))) {
+                    log.fail(id, "Salah satu(atau lebih) NIK pengajar tidak ada pada database.");
+                    continue;
+                }
+                Course course = courseRepository.findByCode(row.courseCode()).orElse(null);
+                if (course == null) {
+                    log.fail(id, "Mata kuliah tidak ada pada database.");
+                    continue;
+                }
+                if (row.roomCodes().stream().anyMatch(c -> !roomIdByCode.containsKey(c))) {
+                    log.fail(id, "Salah satu(atau lebih) Ruangan tidak ada pada database.");
+                    continue;
+                }
+                if (row.roomTypeNames().stream().anyMatch(t -> !roomTypeIdByName.containsKey(t))) {
+                    log.fail(id, "Salah satu(atau lebih) Tipe Ruangan tidak ada pada database.");
+                    continue;
+                }
+                ActivityType type = activityTypeRepository.findByName(row.activityType())
+                        .orElseGet(() -> activityTypeRepository.findById(1)
+                                .orElseThrow(() -> new BadRequestException("No activity type available")));
+
+                Activity a = new Activity();
+                a.setSemester(sem);
+                a.setCourse(course);
+                a.setCourseClass(row.courseClass());
+                a.setCourseSession(row.courseSession());
+                a.setDuration(row.duration());
+                a.setQuota(row.quota());
+                a.setActivityType(type);
+                Activity saved = activityRepository.save(a);
+
+                for (String nik : row.lecturerNiks())
+                    saveImportConstraint(saved, ConstraintType.LECTURER, nik);
+                for (String rt : row.roomTypeNames())
+                    saveImportConstraint(saved, ConstraintType.ROOM_TYPE, String.valueOf(roomTypeIdByName.get(rt)));
+                for (String rc : row.roomCodes())
+                    saveImportConstraint(saved, ConstraintType.ROOM, String.valueOf(roomIdByCode.get(rc)));
+
+                log.ok(id);
+            } catch (Exception e) {
+                log.fail(id, "Exception: " + e.getMessage());
+            }
+        }
+        validateLockService.lock();
+        return log;
+    }
+
+    private void saveImportConstraint(Activity a, ConstraintType type, String value) {
+        ActivityConstraint c = new ActivityConstraint();
+        c.setActivity(a);
+        c.setType(type);
+        c.setValue(value.trim());
+        constraintRepository.save(c);
     }
 
     // ---- helpers -------------------------------------------------------------

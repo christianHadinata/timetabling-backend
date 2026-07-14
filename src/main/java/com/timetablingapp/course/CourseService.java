@@ -2,18 +2,23 @@ package com.timetablingapp.course;
 
 import com.timetablingapp.activity.ActivityRepository;
 import com.timetablingapp.common.base.BaseCrudService;
+import com.timetablingapp.common.excel.ImportLog;
 import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.DuplicateResourceException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
 import com.timetablingapp.jurusan.Jurusan;
 import com.timetablingapp.jurusan.JurusanRepository;
 import com.timetablingapp.jurusan.JurusanService;
+import com.timetablingapp.jurusan.konsentrasi.KonsentrasiRepository;
 import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +29,8 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
     private final JurusanService jurusanService;
     private final ActivityRepository activityRepository;
     private final ValidateLockService validateLockService;
+    private final CourseExcelService courseExcelService;
+    private final KonsentrasiRepository konsentrasiRepository;
 
     @Override
     public List<CourseResponse> findAll() {
@@ -144,5 +151,60 @@ public class CourseService implements BaseCrudService<CourseResponse, CourseRequ
                 .orElseThrow(() -> new ResourceNotFoundException("Course", "id", id));
 
         return CourseInfoResponse.fromEntity(course);
+    }
+
+    // ---- Excel import (mirrors CourseController@uploadExcel) ------------------
+
+    /**
+     * Import courses from an uploaded template. Per row: skip duplicate code, resolve jurusan
+     * by name, validate the konsentrasi belongs to that jurusan (or the jurusan has none),
+     * then create. Bad rows are collected in the log; good rows are persisted.
+     *
+     * NOT wrapped in a single transaction so one bad row does not roll back the batch —
+     * matches Laravel's per-row save. Each save autocommits.
+     */
+    public ImportLog importCourses(MultipartFile file) {
+        ImportLog log = new ImportLog("course");
+
+        // name -> jurusan (mirrors CourseExcel::model hashJurusan)
+        Map<String, Jurusan> byName = jurusanRepository.findAll().stream()
+                .collect(Collectors.toMap(Jurusan::getName, j -> j, (a, b) -> a));
+
+        for (CourseExcelService.CourseRow row : courseExcelService.parse(file)) {
+            String code = row.code() == null ? "" : row.code().trim();
+            if (code.isBlank()) continue;
+
+            if (courseRepository.existsByCode(code)) {
+                log.fail(code, "Ditemukan duplikat dengan course code yang sama pada database.");
+                continue;
+            }
+            Jurusan jurusan = byName.get(row.jurusanName());
+            if (jurusan == null) {
+                log.fail(code, "Jurusan tidak ditemukan: " + row.jurusanName());
+                continue;
+            }
+            List<String> jurKons = konsentrasiRepository.findByJurusanId(jurusan.getId()).stream()
+                    .map(k -> k.getKonsentrasi()).toList();
+            boolean konsentrasiOk = jurKons.isEmpty() || jurKons.contains(row.konsentrasi());
+            if (!konsentrasiOk) {
+                log.fail(code, "Ada kesalahan pada pengaturan konsentrasi jurusan.");
+                continue;
+            }
+            try {
+                Course c = new Course();
+                c.setCode(code);
+                c.setName(row.name());
+                c.setType(CourseType.fromLabel(row.type()));
+                c.setTingkat(row.tingkat());
+                c.setKonsentrasi(row.konsentrasi());
+                c.setJurusan(jurusan);
+                courseRepository.save(c);
+                log.ok(code);
+            } catch (Exception e) {
+                log.fail(code, "Exception: " + e.getMessage());
+            }
+        }
+        validateLockService.lock();
+        return log;
     }
 }

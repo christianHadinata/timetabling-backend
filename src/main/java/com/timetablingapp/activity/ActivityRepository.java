@@ -6,9 +6,14 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ActivityRepository extends JpaRepository<Activity, Integer> {
+
+    /** Lookup an activity by its (course_code, class, session) key — used by result import. */
+    Optional<Activity> findFirstByCourse_CodeAndCourseClassAndCourseSession(
+            String courseCode, String courseClass, Integer courseSession);
 
     /**
      * Activities in a semester, restricted to the caller's faculty jurusans.

@@ -1,6 +1,7 @@
 package com.timetablingapp.room;
 
 import com.timetablingapp.common.base.BaseCrudService;
+import com.timetablingapp.common.excel.ImportLog;
 import com.timetablingapp.common.exception.BadRequestException;
 import com.timetablingapp.common.exception.DuplicateResourceException;
 import com.timetablingapp.common.exception.ResourceNotFoundException;
@@ -20,9 +21,12 @@ import com.timetablingapp.schedule.validate.ValidateLockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +40,7 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
     private final SlotRepository slotRepository;
     private final SlotActivityRepository slotActivityRepository;
     private final ValidateLockService validateLockService;
+    private final RoomExcelService roomExcelService;
 
     @Override
     public List<RoomResponse> findAll() {
@@ -109,6 +114,53 @@ public class RoomService implements BaseCrudService<RoomResponse, RoomRequest, I
         roomAvailableRepository.deleteByRoom_Id(id);   // soft-delete availabilities
         roomRepository.delete(room);
         validateLockService.lock();
+    }
+
+    // ---- Excel import (mirrors RoomController@uploadExcel) --------------------
+
+    /**
+     * Two-pass import: parents first (no parent code), then children — so a child's
+     * parent_room_id FK resolves. Mirrors Laravel getRoomsFromFile(file,true) then (…,false).
+     * Room type is resolved by name (defaulting to the first type); unknown parent → null.
+     *
+     * Note: unlike UI creation, imported rooms do not get per-Time Slot rows here — this
+     * mirrors the legacy uploadExcel path. Slots are (re)built by the validation engine.
+     */
+    public ImportLog importRooms(MultipartFile file) {
+        ImportLog log = new ImportLog("room");
+        List<RoomExcelService.RoomRow> rows = roomExcelService.parse(file);
+
+        Map<String, RoomType> typeByName = roomTypeRepository.findAll().stream()
+                .collect(Collectors.toMap(RoomType::getName, t -> t, (a, b) -> a));
+        RoomType defaultType = roomTypeRepository.findAll().stream().findFirst().orElse(null);
+
+        for (boolean parentPass : new boolean[]{true, false}) {
+            for (RoomExcelService.RoomRow row : rows) {
+                if (row.isParent() != parentPass) continue;
+                String code = row.roomCode();
+                if (code == null || code.isBlank()) continue;
+                try {
+                    Room room = new Room();
+                    room.setRoomCode(code);
+                    room.setName(row.name());
+                    room.setUnitOwner(row.unitOwner());
+                    room.setLocation(row.location());
+                    room.setBuilding(row.building());
+                    room.setFloor(row.floor());
+                    room.setCapacity(row.capacity());
+                    room.setRoomType(typeByName.getOrDefault(row.roomTypeName(), defaultType));
+                    if (!row.isParent()) {
+                        roomRepository.findByRoomCode(row.parentCode()).ifPresent(room::setParentRoom);
+                    }
+                    roomRepository.save(room);
+                    log.ok(code);
+                } catch (Exception e) {
+                    log.fail(code, "Exception: " + e.getMessage());
+                }
+            }
+        }
+        validateLockService.lock();
+        return log;
     }
 
     // ---- helpers -------------------------------------------------------------

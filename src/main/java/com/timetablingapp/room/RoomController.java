@@ -1,11 +1,15 @@
 package com.timetablingapp.room;
 
 import com.timetablingapp.common.dto.MessageResponse;
+import com.timetablingapp.common.excel.ImportLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -15,6 +19,7 @@ import java.util.List;
 public class RoomController {
 
     private final RoomService service;
+    private final RoomExcelService roomExcelService;
 
     @GetMapping
     public ResponseEntity<List<RoomResponse>> getAll() {
@@ -44,5 +49,15 @@ public class RoomController {
         return ResponseEntity.ok(MessageResponse.success("Room deleted successfully"));
     }
 
-    // NOTE: Excel import/export (GET /export, POST /import) added in Phase 9.
+    /** GET /api/rooms/export — download the room upload template. */
+    @GetMapping("/export")
+    public ResponseEntity<Resource> export() {
+        return roomExcelService.downloadTemplate();
+    }
+
+    /** POST /api/rooms/import — bulk-create rooms from a filled template. */
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ImportLog> importExcel(@RequestParam("file") MultipartFile file) {
+        return ResponseEntity.ok(service.importRooms(file));
+    }
 }
